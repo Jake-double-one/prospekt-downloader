@@ -6,15 +6,9 @@ Aufruf:
     python3 lidl_prospekt_auto.py                 # aktueller Prospekt in ./lidl-prospekte
     python3 lidl_prospekt_auto.py ~/Prospekte     # eigener Zielordner
     python3 lidl_prospekt_auto.py --naechster     # zusätzlich den der nächsten Woche
-    python3 lidl_prospekt_auto.py --klein         # verkleinert + durchsuchbar (~90 MB → ~15 MB)
-    python3 lidl_prospekt_auto.py --klein --dpi=150   # schärfer, ~24 MB
 
 Schon vorhandene PDFs werden übersprungen – ideal für einen wöchentlichen Cronjob.
-Braucht nur Python 3, keine Zusatzpakete – außer für --klein:
-`pip install pymupdf` und Tesseract-OCR mit deutschen Sprachdaten.
---klein speichert jede Seite als JPEG-Bild und legt per Texterkennung (OCR) eine
-unsichtbare Textebene darüber. Im Original-PDF von Lidl ist der Text fast nur als
-Grafik eingebettet – erst so wird der Prospekt überhaupt durchsuchbar.
+Braucht nur Python 3, keine Zusatzpakete.
 
 Fehler "CERTIFICATE_VERIFY_FAILED" (oft unter Windows mit Virenscanner-Webschutz
 oder Firmen-Proxy): einmalig `pip install truststore` ausführen – dann nutzt das
@@ -22,7 +16,6 @@ Script die Zertifikate des Betriebssystems, genau wie der Browser.
 """
 import datetime as dt
 import json
-import os
 import pathlib
 import re
 import ssl
@@ -79,67 +72,7 @@ def auswaehlen(prospekte, naechster=False):
     return auswahl
 
 
-OCR_DPI = 300  # Auflösung für die Texterkennung (nur intern, nicht im Ergebnis)
-
-
-def ocr_einrichten():
-    """Prüft PyMuPDF und Tesseract (Deutsch); bricht mit Hinweis ab, falls etwas fehlt."""
-    try:
-        import pymupdf
-    except ImportError:
-        sys.exit("Für --klein wird PyMuPDF benötigt:  pip install pymupdf")
-    standard = pathlib.Path(r"C:\Program Files\Tesseract-OCR\tessdata")
-    if not os.getenv("TESSDATA_PREFIX") and standard.is_dir():
-        os.environ["TESSDATA_PREFIX"] = str(standard)  # Windows-Installer setzt kein PATH
-    try:
-        tessdata = pathlib.Path(pymupdf.get_tessdata())
-    except RuntimeError:
-        tessdata = None
-    if not tessdata or not (tessdata / "deu.traineddata").exists():
-        sys.exit(
-            "Für --klein wird Tesseract-OCR mit deutschen Sprachdaten benötigt.\n"
-            "  Windows: https://github.com/UB-Mannheim/tesseract/wiki – bei der\n"
-            "           Installation unter 'Additional language data' German auswählen.\n"
-            "  Linux:   sudo apt install tesseract-ocr tesseract-ocr-deu\n"
-            "  macOS:   brew install tesseract tesseract-lang"
-        )
-    os.environ["TESSDATA_PREFIX"] = str(tessdata)
-    os.environ.setdefault("OMP_THREAD_LIMIT", "1")  # wir parallelisieren selbst pro Seite
-
-
-def seite_verkleinern(quelle: str, nr: int, dpi: int) -> bytes:
-    """Eine Seite: OCR auf scharfem Bild, dann kleines JPEG + unsichtbarer Text."""
-    import pymupdf
-
-    with pymupdf.open(quelle) as src:
-        seite = src[nr]
-        pix = seite.get_pixmap(dpi=OCR_DPI)
-        pix.set_dpi(OCR_DPI, OCR_DPI)
-        with pymupdf.open("pdf", pix.pdfocr_tobytes(language="deu")) as ocr:
-            jpg = seite.get_pixmap(dpi=dpi).tobytes("jpeg", jpg_quality=70)
-            p = ocr[0]
-            p.replace_image(p.get_images()[0][0], stream=jpg)  # Textebene bleibt
-            return ocr.tobytes(garbage=4, deflate=True)
-
-
-def verkleinern(quelle: pathlib.Path, ziel: pathlib.Path, dpi: int):
-    """Baut ein kleines, durchsuchbares PDF; Seiten laufen parallel."""
-    import pymupdf
-    from concurrent.futures import ProcessPoolExecutor
-
-    with pymupdf.open(quelle) as src:
-        anzahl = src.page_count
-    with ProcessPoolExecutor() as pool, pymupdf.open() as out:
-        jobs = [pool.submit(seite_verkleinern, str(quelle), i, dpi) for i in range(anzahl)]
-        for i, job in enumerate(jobs, 1):
-            with pymupdf.open("pdf", job.result()) as seite:
-                out.insert_pdf(seite)
-            print(f"\r  … Seite {i}/{anzahl}", end="", flush=True)
-        print()
-        out.save(ziel, garbage=4, deflate=True)
-
-
-def herunterladen(fid: str, ordner: pathlib.Path, dpi: int | None = None):
+def herunterladen(fid: str, ordner: pathlib.Path):
     data = json.loads(hole(API.format(id=fid)))
     flyer = data.get("flyer") or {}
     pdf = flyer.get("hiResPdfUrl") or flyer.get("pdfUrl")
@@ -159,14 +92,8 @@ def herunterladen(fid: str, ordner: pathlib.Path, dpi: int | None = None):
     with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
         while chunk := r.read(1 << 20):
             f.write(chunk)
-    if dpi:
-        print(f"  … verkleinere auf {dpi} dpi mit Texterkennung")
-        klein = ziel.with_suffix(".klein.part")
-        verkleinern(tmp, klein, dpi)
-        tmp.unlink()
-        tmp = klein
     tmp.rename(ziel)  # erst nach vollständigem Download umbenennen
-    print(f"  ✓ Gespeichert: {ziel} ({ziel.stat().st_size / 1e6:.0f} MB)")
+    print(f"  ✓ Gespeichert: {ziel}")
 
 
 def main():
@@ -185,16 +112,12 @@ def main():
 def laden():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     naechster = "--naechster" in sys.argv
-    dpi = None
-    if "--klein" in sys.argv:
-        dpi = next((int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--dpi=")), 120)
-        ocr_einrichten()  # früh prüfen, nicht erst nach dem Download
     ordner = pathlib.Path(args[0] if args else "lidl-prospekte").expanduser()
     ordner.mkdir(parents=True, exist_ok=True)
 
     for start, ende, fid in auswaehlen(prospekte_finden(), naechster):
         print(f"Aktionsprospekt {start:%d.%m.} – {ende:%d.%m.%Y}")
-        herunterladen(fid, ordner, dpi)
+        herunterladen(fid, ordner)
 
 
 if __name__ == "__main__":

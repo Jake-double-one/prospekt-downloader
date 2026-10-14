@@ -38,31 +38,3 @@ pip install truststore
 
 Das Script nutzt `truststore` automatisch, falls installiert, und prüft dann gegen den
 Zertifikatsspeicher des Betriebssystems – wie der Browser.
-
-## Python: Prospekt verkleinern und durchsuchbar machen (`--klein`)
-
-Der Lidl-Prospekt ist als PDF rund 90 MB groß – und trotzdem kaum durchsuchbar: Lidl bettet
-den Text auf fast allen Seiten als Grafik ein (im aktuellen Prospekt haben nur 4 von 73 Seiten
-echten Text). Mit `--klein` wird der Prospekt nach dem Download
-
-- verkleinert (jede Seite als JPEG, ca. 15 MB statt 90 MB) und
-- per Texterkennung (OCR) mit einer unsichtbaren Textebene versehen – danach lässt sich
-  jede Seite durchsuchen und Text markieren/kopieren.
-
-Einmalige Einrichtung:
-
-1. `pip install pymupdf`
-2. Tesseract-OCR mit deutschen Sprachdaten installieren:
-   - **Windows:** Installer von https://github.com/UB-Mannheim/tesseract/wiki – bei der
-     Installation unter „Additional language data“ **German** auswählen. Der Standardordner
-     `C:\Program Files\Tesseract-OCR` wird automatisch gefunden.
-   - Linux: `sudo apt install tesseract-ocr tesseract-ocr-deu`
-   - macOS: `brew install tesseract tesseract-lang`
-
-```
-python lidl_prospekt_auto.py --klein            # 120 dpi, ca. 15 MB
-python lidl_prospekt_auto.py --klein --dpi=150  # schärfer, ca. 24 MB
-```
-
-Die Texterkennung dauert einige Minuten (alle Prozessorkerne werden genutzt). Sie erkennt
-Produktnamen und Beschreibungen zuverlässig, groß gesetzte Preise dagegen nicht immer.
