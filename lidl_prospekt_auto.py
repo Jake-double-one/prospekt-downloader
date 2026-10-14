@@ -6,9 +6,13 @@ Aufruf:
     python3 lidl_prospekt_auto.py                 # aktueller Prospekt in ./lidl-prospekte
     python3 lidl_prospekt_auto.py ~/Prospekte     # eigener Zielordner
     python3 lidl_prospekt_auto.py --naechster     # zusätzlich den der nächsten Woche
+    python3 lidl_prospekt_auto.py --klein         # verkleinert speichern (~90 MB → ~16 MB)
+    python3 lidl_prospekt_auto.py --klein --dpi=150   # schärfer, ~24 MB
 
 Schon vorhandene PDFs werden übersprungen – ideal für einen wöchentlichen Cronjob.
-Braucht nur Python 3, keine Zusatzpakete.
+Braucht nur Python 3, keine Zusatzpakete – außer für --klein: `pip install pymupdf`.
+--klein speichert jede Seite als JPEG-Bild. Das ist am Bildschirm gut lesbar,
+aber der Text im PDF ist dann nicht mehr durchsuchbar.
 
 Fehler "CERTIFICATE_VERIFY_FAILED" (oft unter Windows mit Virenscanner-Webschutz
 oder Firmen-Proxy): einmalig `pip install truststore` ausführen – dann nutzt das
@@ -72,7 +76,19 @@ def auswaehlen(prospekte, naechster=False):
     return auswahl
 
 
-def herunterladen(fid: str, ordner: pathlib.Path):
+def verkleinern(quelle: pathlib.Path, ziel: pathlib.Path, dpi: int):
+    """Rendert jede Seite als JPEG und baut daraus ein neues PDF."""
+    import pymupdf
+
+    with pymupdf.open(quelle) as src, pymupdf.open() as out:
+        for seite in src:
+            bild = seite.get_pixmap(dpi=dpi).tobytes("jpeg", jpg_quality=70)
+            neu = out.new_page(width=seite.rect.width, height=seite.rect.height)
+            neu.insert_image(neu.rect, stream=bild)
+        out.save(ziel, garbage=4, deflate=True)
+
+
+def herunterladen(fid: str, ordner: pathlib.Path, dpi: int | None = None):
     data = json.loads(hole(API.format(id=fid)))
     flyer = data.get("flyer") or {}
     pdf = flyer.get("hiResPdfUrl") or flyer.get("pdfUrl")
@@ -92,8 +108,14 @@ def herunterladen(fid: str, ordner: pathlib.Path):
     with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
         while chunk := r.read(1 << 20):
             f.write(chunk)
+    if dpi:
+        print(f"  … verkleinere auf {dpi} dpi")
+        klein = ziel.with_suffix(".klein.part")
+        verkleinern(tmp, klein, dpi)
+        tmp.unlink()
+        tmp = klein
     tmp.rename(ziel)  # erst nach vollständigem Download umbenennen
-    print(f"  ✓ Gespeichert: {ziel}")
+    print(f"  ✓ Gespeichert: {ziel} ({ziel.stat().st_size / 1e6:.0f} MB)")
 
 
 def main():
@@ -112,12 +134,19 @@ def main():
 def laden():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     naechster = "--naechster" in sys.argv
+    dpi = None
+    if "--klein" in sys.argv:
+        dpi = next((int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--dpi=")), 120)
+        try:
+            import pymupdf  # noqa: F401 – früh prüfen, nicht erst nach dem Download
+        except ImportError:
+            sys.exit("Für --klein wird PyMuPDF benötigt:  pip install pymupdf")
     ordner = pathlib.Path(args[0] if args else "lidl-prospekte").expanduser()
     ordner.mkdir(parents=True, exist_ok=True)
 
     for start, ende, fid in auswaehlen(prospekte_finden(), naechster):
         print(f"Aktionsprospekt {start:%d.%m.} – {ende:%d.%m.%Y}")
-        herunterladen(fid, ordner)
+        herunterladen(fid, ordner, dpi)
 
 
 if __name__ == "__main__":

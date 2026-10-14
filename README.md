@@ -38,3 +38,18 @@ pip install truststore
 
 Das Script nutzt `truststore` automatisch, falls installiert, und prüft dann gegen den
 Zertifikatsspeicher des Betriebssystems – wie der Browser.
+
+## Python: Prospekt verkleinern (`--klein`)
+
+Der Lidl-Prospekt ist als PDF rund 90 MB groß. Mit `--klein` wird er nach dem Download
+verkleinert:
+
+```
+pip install pymupdf
+python lidl_prospekt_auto.py --klein            # 120 dpi, ca. 16 MB
+python lidl_prospekt_auto.py --klein --dpi=150  # schärfer, ca. 24 MB
+```
+
+Dabei wird jede Seite als JPEG-Bild gespeichert. Am Bildschirm ist das gut lesbar, der Text
+im PDF ist danach aber nicht mehr durchsuchbar oder markierbar. Das Verkleinern dauert etwa
+eine Minute.
