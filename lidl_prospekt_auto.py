@@ -9,13 +9,25 @@ Aufruf:
 
 Schon vorhandene PDFs werden übersprungen – ideal für einen wöchentlichen Cronjob.
 Braucht nur Python 3, keine Zusatzpakete.
+
+Fehler "CERTIFICATE_VERIFY_FAILED" (oft unter Windows mit Virenscanner-Webschutz
+oder Firmen-Proxy): einmalig `pip install truststore` ausführen – dann nutzt das
+Script die Zertifikate des Betriebssystems, genau wie der Browser.
 """
 import datetime as dt
 import json
 import pathlib
 import re
+import ssl
 import sys
+import urllib.error
 import urllib.request
+
+try:  # optional: Zertifikatsspeicher des Betriebssystems verwenden
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
 
 UEBERSICHT = "https://www.lidl.de/c/online-prospekte/s10005610"
 API = "https://endpoints.leaflets.schwarz/v4/flyer?flyer_identifier={id}&region_id=0&region_code=0"
@@ -85,6 +97,19 @@ def herunterladen(fid: str, ordner: pathlib.Path):
 
 
 def main():
+    try:
+        laden()
+    except urllib.error.URLError as e:
+        if not isinstance(e.reason, ssl.SSLCertVerificationError):
+            raise
+        sys.exit(
+            f"SSL-Zertifikat konnte nicht geprüft werden ({e.reason.verify_message}).\n"
+            "Meist fängt ein Virenscanner-Webschutz oder ein Firmen-Proxy die Verbindung ab.\n"
+            "Lösung: einmalig  pip install truststore  ausführen und das Script erneut starten."
+        )
+
+
+def laden():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     naechster = "--naechster" in sys.argv
     ordner = pathlib.Path(args[0] if args else "lidl-prospekte").expanduser()

@@ -25,3 +25,16 @@ Bereits geladene PDFs merkt sich das Script intern (ein Userscript kann den Down
 Im Array `HAENDLER` einen Eintrag mit `id`, `name`, `finden()` und `pdf(p)` ergänzen
 (Vorlage steht im Script) und die benötigten Hosts als `@connect` – sowie die Händler-Seite
 als `@match` für den Autostart – in den Header eintragen.
+
+## Python: Fehler `CERTIFICATE_VERIFY_FAILED`
+
+Tritt vor allem unter Windows auf, wenn ein Virenscanner-Webschutz oder ein Firmen-Proxy
+HTTPS-Verbindungen mit einem eigenen Zertifikat abfängt. Python kennt dieses Zertifikat nicht,
+der Browser schon. Abhilfe:
+
+```
+pip install truststore
+```
+
+Das Script nutzt `truststore` automatisch, falls installiert, und prüft dann gegen den
+Zertifikatsspeicher des Betriebssystems – wie der Browser.
